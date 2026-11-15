@@ -1,0 +1,60 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: secure-order-mcp-server
+  threads:
+    virtual:
+      enabled: true
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+
+  ai:
+    mcp:
+      server:
+        name: secure-order-mcp
+        version: 1.0.0
+        type: SYNC
+        protocol: STREAMABLE
+        instructions: "Provides secure tools for querying orders, issuing refunds, comparing EDI files across environments, and investigating Java errors from logs."
+        streamable-http:
+          mcp-endpoint: /mcp
+        capabilities:
+          tool: true
+          resource: true
+          prompt: true
+
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${OAUTH2_ISSUER_URI:http://localhost:8081/realms/mcp-realm}
+
+# Sample data used by the engineering tools. Paths are relative to the working directory.
+demo:
+  edi:
+    reference-dir: ${EDI_REFERENCE_DIR:sample-data/edi/env-a}
+    candidate-dir: ${EDI_CANDIDATE_DIR:sample-data/edi/env-b}
+  logs:
+    file: ${LOGS_FILE:sample-data/logs/logs-before.ndjson}
+    post-fix-file: ${LOGS_POST_FIX_FILE:sample-data/logs/logs-after.ndjson}
+  source:
+    root: ${SOURCE_ROOT:sample-app/src/main/java}
+    app-package: ${APP_PACKAGE:demo.orders}
+
+resilience4j:
+  bulkhead:
+    instances:
+      refundToolBulkhead:
+        maxConcurrentCalls: 10
+        maxWaitDuration: 500ms
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus

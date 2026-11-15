@@ -1,0 +1,5 @@
+{"@timestamp": "2026-01-13T09:00:01Z", "level": "INFO", "service": "orders-service", "message": "Started orders-service"}
+{"@timestamp": "2026-01-13T09:12:40Z", "level": "INFO", "service": "orders-service", "message": "Order 10611 confirmed"}
+{"@timestamp": "2026-01-13T09:40:18Z", "level": "WARN", "service": "orders-service", "message": "Unknown coupon code ignored for order 10615"}
+{"@timestamp": "2026-01-13T10:26:02Z", "level": "ERROR", "service": "orders-service", "message": "Order summary failed for cart 7842", "stack_trace": "java.lang.IllegalStateException: Failed to build order summary\n\tat demo.orders.web.SummaryController.summary(SummaryController.java:58)\n\tat java.base/java.lang.Thread.run(Thread.java:1583)\nCaused by: java.lang.ArithmeticException: / by zero\n\tat demo.orders.OrderService.averageItemPriceCents(OrderService.java:25)\n\tat demo.orders.web.SummaryController.summary(SummaryController.java:55)\n\t... 1 more"}
+{"@timestamp": "2026-01-13T12:00:00Z", "level": "INFO", "service": "orders-service", "message": "Health check OK"}

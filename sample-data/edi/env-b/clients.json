@@ -1,0 +1,43 @@
+[
+  {
+    "id": "ALPHA",
+    "name": "Alpha Manufacturing (sample)",
+    "enabled": true,
+    "linesOfBusiness": [
+      "medical",
+      "dental"
+    ]
+  },
+  {
+    "id": "BRAVO",
+    "name": "Bravo Logistics (sample)",
+    "enabled": true,
+    "linesOfBusiness": [
+      "medical"
+    ]
+  },
+  {
+    "id": "CHARLIE",
+    "name": "Charlie Retail (sample)",
+    "enabled": false,
+    "linesOfBusiness": [
+      "medical"
+    ]
+  },
+  {
+    "id": "DELTA",
+    "name": "Delta Foods (sample)",
+    "enabled": true,
+    "linesOfBusiness": [
+      "medical"
+    ]
+  },
+  {
+    "id": "ECHO",
+    "name": "Echo Dental Group (sample)",
+    "enabled": true,
+    "linesOfBusiness": [
+      "dental"
+    ]
+  }
+]
