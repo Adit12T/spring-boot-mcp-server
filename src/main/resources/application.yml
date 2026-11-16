@@ -46,7 +46,19 @@ demo:
     root: ${SOURCE_ROOT:sample-app/src/main/java}
     app-package: ${APP_PACKAGE:demo.orders}
 
+mcp:
+  security:
+    # Reject tokens whose audience is not this server (MCP authorization spec). Turn off only for local experiments.
+    validate-audience: ${MCP_VALIDATE_AUDIENCE:true}
+
 resilience4j:
+  ratelimiter:
+    configs:
+      # Applied per tenant and per tool by ToolCallAspect.
+      mcpTool:
+        limitForPeriod: ${MCP_TOOL_CALLS_PER_MINUTE:60}
+        limitRefreshPeriod: 60s
+        timeoutDuration: 0s
   bulkhead:
     instances:
       refundToolBulkhead:
