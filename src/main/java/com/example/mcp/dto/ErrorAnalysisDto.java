@@ -7,7 +7,7 @@ public record ErrorAnalysisDto(
     int distinctErrors,
     List<ErrorFinding> findings,
     ToolErrorDto error
-) {
+) implements ToolResult {
     public record ErrorFinding(
         String exceptionType,
         String exceptionMessage,

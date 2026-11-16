@@ -1,21 +1,26 @@
 package com.example.mcp.mcp;
 
 import com.example.mcp.dto.RefundResponseDto;
+import com.example.mcp.security.CallerContext;
 import com.example.mcp.service.PaymentDomainService;
 import io.github.resilience4j.bulkhead.annotation.Bulkhead;
 import org.springaicommunity.mcp.annotation.McpTool;
 import org.springaicommunity.mcp.annotation.McpToolParam;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
 import java.time.Duration;
+import java.util.regex.Pattern;
 
 @Component
 public class ProductionPaymentMcpTools {
+
+    private static final Pattern ORDER_ID = Pattern.compile("ORD-[0-9]{6}");
+    private static final Pattern IDEMPOTENCY_KEY = Pattern.compile("[A-Za-z0-9-]{8,64}");
+    private static final BigDecimal MAX_AUTOMATED_REFUND = new BigDecimal("500.00");
+    private static final Duration LOCK_TTL = Duration.ofHours(24);
 
     private final PaymentDomainService paymentService;
     private final StringRedisTemplate redisTemplate;
@@ -29,15 +34,34 @@ public class ProductionPaymentMcpTools {
     @Bulkhead(name = "refundToolBulkhead", fallbackMethod = "refundBulkheadFallback")
     @McpTool(
         name = "issue_customer_refund",
-        description = "Issues a refund for a settled order. Use ONLY when order status is DELIVERED or RETURNED."
+        title = "Issue customer refund",
+        description = "Issues a refund for a settled order. Use ONLY when order status is DELIVERED or RETURNED. "
+            + "Moves money and cannot be undone. Safe to retry with the same idempotencyKey.",
+        annotations = @McpTool.McpAnnotations(
+            title = "Issue customer refund", readOnlyHint = false, destructiveHint = true,
+            idempotentHint = true, openWorldHint = false)
     )
     public RefundResponseDto issueRefund(
             @McpToolParam(description = "Unique client-generated idempotency key (UUID)", required = true) String idempotencyKey,
             @McpToolParam(description = "Order ID matching pattern ORD-[0-9]{6}", required = true) String orderId,
             @McpToolParam(description = "Refund amount in USD (must be greater than 0 and up to 500.00)", required = true) BigDecimal amount) {
 
-        // 1. Semantic Guardrail
-        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0 || amount.compareTo(new BigDecimal("500.00")) > 0) {
+        // 1. Input guardrails: what the descriptions promise is enforced here, not left to the model.
+        if (idempotencyKey == null || !IDEMPOTENCY_KEY.matcher(idempotencyKey).matches()) {
+            return RefundResponseDto.error(
+                "ERR_INVALID_IDEMPOTENCY_KEY",
+                "idempotencyKey must be 8 to 64 letters, digits or hyphens, for example a UUID.",
+                "Generate one UUID for this refund and reuse it on every retry."
+            );
+        }
+        if (orderId == null || !ORDER_ID.matcher(orderId).matches()) {
+            return RefundResponseDto.error(
+                "ERR_INVALID_ORDER_ID",
+                "orderId must match ORD- followed by six digits.",
+                "Look the order up with get_order_status and use its exact orderId."
+            );
+        }
+        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0 || amount.compareTo(MAX_AUTOMATED_REFUND) > 0) {
             return RefundResponseDto.error(
                 "ERR_AMOUNT_OUT_OF_BOUNDS",
                 "Automated MCP refunds must be between $0.01 and $500.00 USD.",
@@ -45,18 +69,38 @@ public class ProductionPaymentMcpTools {
             );
         }
 
-        // 2. Tenant Isolation from Validated JWT
-        Jwt jwt = (Jwt) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
-        String tenantId = jwt.getClaimAsString("tenant_id") != null ? jwt.getClaimAsString("tenant_id") : jwt.getSubject();
+        // 2. Tenant isolation from the validated JWT, never from tool arguments.
+        String tenantId = CallerContext.current().tenantId();
 
-        // 3. Atomic Redis Idempotency Lock
+        // 3. Atomic Redis idempotency lock: only the first request with this key may move money.
         String lockKey = "mcp:idempotency:" + tenantId + ":" + idempotencyKey;
-        Boolean isFirstRequest = redisTemplate.opsForValue().setIfAbsent(lockKey, "IN_PROGRESS", Duration.ofHours(24));
-        if (Boolean.FALSE.equals(isFirstRequest)) {
-            return paymentService.getExistingRefundByIdempotencyKey(tenantId, idempotencyKey);
+        Boolean isFirstRequest = redisTemplate.opsForValue().setIfAbsent(lockKey, "IN_PROGRESS", LOCK_TTL);
+        if (!Boolean.TRUE.equals(isFirstRequest)) {
+            RefundResponseDto existing = paymentService.getExistingRefundByIdempotencyKey(tenantId, idempotencyKey);
+            if (existing.success()
+                    && (!orderId.equals(existing.orderId()) || amount.compareTo(existing.refundedAmount()) != 0)) {
+                return RefundResponseDto.error(
+                    "ERR_IDEMPOTENCY_KEY_REUSED",
+                    "This idempotencyKey was already used for a different order or amount.",
+                    "Use a new idempotencyKey only for a new refund; reuse a key only to retry the same refund."
+                );
+            }
+            return existing;
         }
 
-        return paymentService.processRefund(tenantId, orderId, amount, idempotencyKey);
+        // 4. Finish the lock's life cycle: mark it completed on success, release it on failure so a retry can proceed.
+        try {
+            RefundResponseDto result = paymentService.processRefund(tenantId, orderId, amount, idempotencyKey);
+            redisTemplate.opsForValue().set(lockKey, "COMPLETED:" + result.refundId(), LOCK_TTL);
+            return result;
+        } catch (RuntimeException e) {
+            redisTemplate.delete(lockKey);
+            return RefundResponseDto.error(
+                "ERR_REFUND_FAILED",
+                "The refund could not be processed. No money was moved.",
+                "Retry once with the same idempotencyKey. If it fails again, hand off to a human agent."
+            );
+        }
     }
 
     public RefundResponseDto refundBulkheadFallback(String idempotencyKey, String orderId, BigDecimal amount, Throwable t) {

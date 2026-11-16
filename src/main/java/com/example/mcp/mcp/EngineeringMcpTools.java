@@ -17,6 +17,7 @@ import com.example.mcp.agents.edi.Reconciler;
 import com.example.mcp.dto.EdiComparisonDto;
 import com.example.mcp.dto.ErrorAnalysisDto;
 import com.example.mcp.dto.SourceSnippetDto;
+import com.example.mcp.security.PiiMasker;
 import org.springaicommunity.mcp.annotation.McpTool;
 import org.springaicommunity.mcp.annotation.McpToolParam;
 import org.springframework.beans.factory.annotation.Value;
@@ -65,6 +66,10 @@ public class EngineeringMcpTools {
     @PreAuthorize("hasAuthority('SCOPE_edi:read')")
     @McpTool(
         name = "compare_edi_environments",
+        title = "Compare EDI environments",
+        annotations = @McpTool.McpAnnotations(
+            title = "Compare EDI environments", readOnlyHint = true, destructiveHint = false,
+            idempotentHint = true, openWorldHint = false),
         description = "Compares EDI files between the reference and candidate environments for one line of business. "
             + "Only clients enabled in both environments are compared. Returns missing, extra, duplicate and "
             + "changed members with a likely cause for each. Read-only."
@@ -110,9 +115,13 @@ public class EngineeringMcpTools {
     @PreAuthorize("hasAuthority('SCOPE_logs:read')")
     @McpTool(
         name = "analyze_error_logs",
+        title = "Analyze error logs",
+        annotations = @McpTool.McpAnnotations(
+            title = "Analyze error logs", readOnlyHint = true, destructiveHint = false,
+            idempotentHint = true, openWorldHint = false),
         description = "Reads the service's error logs, groups repeated errors, and for each one returns the class "
             + "and line, the failing code, a root cause, a suggested fix, a regression test draft, and whether "
-            + "the error still appears in the post-fix logs. Read-only."
+            + "the error still appears in the post-fix logs. Personal data in log text is masked. Read-only."
     )
     public ErrorAnalysisDto analyzeErrorLogs() {
         try {
@@ -135,13 +144,14 @@ public class EngineeringMcpTools {
 
                 findings.add(new ErrorAnalysisDto.ErrorFinding(
                     group.trace().exceptionType(),
-                    group.trace().exceptionMessage(),
+                    // Log text can carry customer data; mask it before it reaches the model.
+                    PiiMasker.mask(group.trace().exceptionMessage()),
                     group.count(),
                     frame == null ? null : frame.className(),
                     frame == null ? null : frame.method(),
                     frame == null ? null : frame.line(),
                     snippet == null ? null : snippet.failingLine().trim(),
-                    diagnosis.rootCause(),
+                    PiiMasker.mask(diagnosis.rootCause()),
                     diagnosis.suggestedFix(),
                     diagnosis.regressionTest(),
                     status));
@@ -159,6 +169,10 @@ public class EngineeringMcpTools {
     @PreAuthorize("hasAuthority('SCOPE_source:read')")
     @McpTool(
         name = "get_java_source",
+        title = "Get Java source",
+        annotations = @McpTool.McpAnnotations(
+            title = "Get Java source", readOnlyHint = true, destructiveHint = false,
+            idempotentHint = true, openWorldHint = false),
         description = "Returns the lines around a given line of an application class, for example the top "
             + "application frame of a stack trace. Only classes in the application package can be read. Read-only."
     )

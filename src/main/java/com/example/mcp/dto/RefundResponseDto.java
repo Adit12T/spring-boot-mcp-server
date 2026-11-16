@@ -10,7 +10,7 @@ public record RefundResponseDto(
     String errorCode,
     String errorMessage,
     String recoveryHint
-) {
+) implements ToolResult {
     public static RefundResponseDto ok(String refundId, String orderId, BigDecimal amount) {
         return new RefundResponseDto(true, refundId, orderId, amount, null, null, null);
     }

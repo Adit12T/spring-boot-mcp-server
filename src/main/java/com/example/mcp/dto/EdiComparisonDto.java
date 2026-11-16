@@ -12,7 +12,7 @@ public record EdiComparisonDto(
     List<ClientComparison> clients,
     List<String> skippedClients,
     ToolErrorDto error
-) {
+) implements ToolResult {
     public record ClientComparison(String clientId, int referenceMembers, int candidateMembers,
                                    List<Difference> differences) {}
 

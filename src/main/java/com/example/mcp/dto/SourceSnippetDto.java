@@ -9,7 +9,7 @@ public record SourceSnippetDto(
     Integer startLine,
     List<String> lines,
     ToolErrorDto error
-) {
+) implements ToolResult {
     public static SourceSnippetDto error(String errorCode, String errorMessage, String recoveryHint) {
         return new SourceSnippetDto(false, null, null, null, List.of(),
             new ToolErrorDto(errorCode, errorMessage, recoveryHint));

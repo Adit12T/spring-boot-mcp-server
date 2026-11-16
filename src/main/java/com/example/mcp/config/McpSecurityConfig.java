@@ -18,6 +18,9 @@ public class McpSecurityConfig {
     @Value("${spring.security.oauth2.resourceserver.jwt.issuer-uri}")
     private String issuerUri;
 
+    @Value("${mcp.security.validate-audience:true}")
+    private boolean validateAudience;
+
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         return http
@@ -29,6 +32,8 @@ public class McpSecurityConfig {
             )
             .with(McpServerOAuth2Configurer.mcpServerOAuth2(), mcpAuth -> {
                 mcpAuth.authorizationServer(this.issuerUri);
+                // The MCP authorization spec requires rejecting tokens that were issued for another resource.
+                mcpAuth.validateAudienceClaim(this.validateAudience);
             })
             .build();
     }
