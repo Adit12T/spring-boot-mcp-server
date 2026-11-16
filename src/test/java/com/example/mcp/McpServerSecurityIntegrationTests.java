@@ -2,7 +2,10 @@ package com.example.mcp;
 
 import com.example.mcp.dto.EdiComparisonDto;
 import com.example.mcp.mcp.EngineeringMcpTools;
+import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpServer;
 import io.micrometer.core.instrument.MeterRegistry;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -10,7 +13,15 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.test.context.support.WithMockUser;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
+
+import java.io.IOException;
+import java.io.OutputStream;
+import java.io.UncheckedIOException;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -23,13 +34,52 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * Starts the full application context (no Redis or identity provider needed) and checks the security
+ * Starts the full application context against a stand-in identity provider (no Redis or Keycloak needed)
+ * and checks the security
  * boundary: the MCP endpoint rejects anonymous calls, advertises its OAuth metadata, and every tool
  * enforces its own scope.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
 class McpServerSecurityIntegrationTests {
+
+    /** Serves the OpenID discovery document the resource server reads at startup. */
+    private static final HttpServer IDENTITY_PROVIDER = startIdentityProvider();
+
+    private static HttpServer startIdentityProvider() {
+        try {
+            HttpServer server = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
+            String issuer = "http://localhost:" + server.getAddress().getPort();
+            byte[] discovery = ("{\"issuer\":\"" + issuer + "\",\"jwks_uri\":\"" + issuer + "/jwks\"}")
+                .getBytes(StandardCharsets.UTF_8);
+            byte[] keys = "{\"keys\":[]}".getBytes(StandardCharsets.UTF_8);
+            server.createContext("/.well-known/openid-configuration", exchange -> respond(exchange, discovery));
+            server.createContext("/jwks", exchange -> respond(exchange, keys));
+            server.start();
+            return server;
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    private static void respond(HttpExchange exchange, byte[] body) throws IOException {
+        exchange.getResponseHeaders().add("Content-Type", "application/json");
+        exchange.sendResponseHeaders(200, body.length);
+        try (OutputStream out = exchange.getResponseBody()) {
+            out.write(body);
+        }
+    }
+
+    @DynamicPropertySource
+    static void identityProvider(DynamicPropertyRegistry registry) {
+        registry.add("spring.security.oauth2.resourceserver.jwt.issuer-uri",
+            () -> "http://localhost:" + IDENTITY_PROVIDER.getAddress().getPort());
+    }
+
+    @AfterAll
+    static void stopIdentityProvider() {
+        IDENTITY_PROVIDER.stop(0);
+    }
 
     @Autowired
     private MockMvc mockMvc;

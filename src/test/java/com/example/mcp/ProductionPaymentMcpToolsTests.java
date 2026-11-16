@@ -8,12 +8,14 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 
 import java.math.BigDecimal;
 import java.time.Duration;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -46,7 +48,9 @@ class ProductionPaymentMcpToolsTests {
             .subject("agent-1")
             .claim("tenant_id", "tenant-1")
             .build();
-        SecurityContextHolder.getContext().setAuthentication(new JwtAuthenticationToken(jwt));
+        // Passing authorities marks the token as authenticated, as the resource server does for a valid JWT.
+        SecurityContextHolder.getContext().setAuthentication(
+            new JwtAuthenticationToken(jwt, List.of(new SimpleGrantedAuthority("SCOPE_payments:refund"))));
     }
 
     @AfterEach

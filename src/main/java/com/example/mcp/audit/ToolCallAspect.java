@@ -14,10 +14,12 @@ import org.aspectj.lang.reflect.MethodSignature;
 import org.slf4j.MDC;
 import org.springaicommunity.mcp.annotation.McpTool;
 import org.springframework.core.Ordered;
+import org.springframework.core.annotation.AnnotationUtils;
 import org.springframework.core.annotation.Order;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Component;
 
+import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -33,9 +35,14 @@ import java.util.concurrent.TimeUnit;
  */
 @Aspect
 @Component
-@Order(Ordered.HIGHEST_PRECEDENCE)
+@Order(ToolCallAspect.ORDER)
 public class ToolCallAspect {
 
+    /**
+     * Just after Spring's own invocation-exposing interceptor (HIGHEST_PRECEDENCE + 1) and well before
+     * method security, so denied calls still pass through here.
+     */
+    static final int ORDER = Ordered.HIGHEST_PRECEDENCE + 10;
     static final String RATE_LIMIT_CONFIG = "mcpTool";
     static final String METRIC_NAME = "mcp.tool.calls";
     private static final String CORRELATION_ID = "correlationId";
@@ -50,11 +57,11 @@ public class ToolCallAspect {
         this.rateLimiterRegistry = rateLimiterRegistry;
     }
 
-    @Around("@annotation(mcpTool)")
-    public Object aroundToolCall(ProceedingJoinPoint joinPoint, McpTool mcpTool) throws Throwable {
-        String tool = mcpTool.name().isBlank()
-            ? ((MethodSignature) joinPoint.getSignature()).getMethod().getName()
-            : mcpTool.name();
+    @Around("@annotation(org.springaicommunity.mcp.annotation.McpTool)")
+    public Object aroundToolCall(ProceedingJoinPoint joinPoint) throws Throwable {
+        Method method = ((MethodSignature) joinPoint.getSignature()).getMethod();
+        McpTool mcpTool = AnnotationUtils.findAnnotation(method, McpTool.class);
+        String tool = mcpTool == null || mcpTool.name().isBlank() ? method.getName() : mcpTool.name();
         CallerContext caller = CallerContext.current();
         String correlationId = UUID.randomUUID().toString();
         long startedAt = System.nanoTime();
