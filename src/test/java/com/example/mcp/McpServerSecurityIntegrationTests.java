@@ -2,6 +2,15 @@ package com.example.mcp;
 
 import com.example.mcp.dto.EdiComparisonDto;
 import com.example.mcp.mcp.EngineeringMcpTools;
+import com.nimbusds.jose.JOSEException;
+import com.nimbusds.jose.JWSAlgorithm;
+import com.nimbusds.jose.JWSHeader;
+import com.nimbusds.jose.crypto.RSASSASigner;
+import com.nimbusds.jose.jwk.JWKSet;
+import com.nimbusds.jose.jwk.RSAKey;
+import com.nimbusds.jose.jwk.gen.RSAKeyGenerator;
+import com.nimbusds.jwt.JWTClaimsSet;
+import com.nimbusds.jwt.SignedJWT;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -22,6 +31,7 @@ import java.io.OutputStream;
 import java.io.UncheckedIOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.util.Date;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -43,8 +53,38 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc
 class McpServerSecurityIntegrationTests {
 
-    /** Serves the OpenID discovery document the resource server reads at startup. */
+    private static final RSAKey SIGNING_KEY = generateSigningKey();
+
+    /** Serves the OpenID discovery document and signing key the resource server reads at startup. */
     private static final HttpServer IDENTITY_PROVIDER = startIdentityProvider();
+
+    private static RSAKey generateSigningKey() {
+        try {
+            return new RSAKeyGenerator(2048).keyID("test-key").algorithm(JWSAlgorithm.RS256).generate();
+        } catch (JOSEException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    private static String issuer() {
+        return "http://localhost:" + IDENTITY_PROVIDER.getAddress().getPort();
+    }
+
+    /** A signed access token, as the identity provider would issue it. */
+    private static String token(String audience, String scope) throws JOSEException {
+        JWTClaimsSet claims = new JWTClaimsSet.Builder()
+            .issuer(issuer())
+            .subject("agent-1")
+            .audience(audience)
+            .claim("scope", scope)
+            .claim("tenant_id", "tenant-1")
+            .issueTime(new Date())
+            .expirationTime(new Date(System.currentTimeMillis() + 300_000))
+            .build();
+        SignedJWT jwt = new SignedJWT(new JWSHeader.Builder(JWSAlgorithm.RS256).keyID("test-key").build(), claims);
+        jwt.sign(new RSASSASigner(SIGNING_KEY));
+        return jwt.serialize();
+    }
 
     private static HttpServer startIdentityProvider() {
         try {
@@ -52,7 +92,7 @@ class McpServerSecurityIntegrationTests {
             String issuer = "http://localhost:" + server.getAddress().getPort();
             byte[] discovery = ("{\"issuer\":\"" + issuer + "\",\"jwks_uri\":\"" + issuer + "/jwks\"}")
                 .getBytes(StandardCharsets.UTF_8);
-            byte[] keys = "{\"keys\":[]}".getBytes(StandardCharsets.UTF_8);
+            byte[] keys = new JWKSet(SIGNING_KEY.toPublicJWK()).toString().getBytes(StandardCharsets.UTF_8);
             server.createContext("/.well-known/openid-configuration", exchange -> respond(exchange, discovery));
             server.createContext("/jwks", exchange -> respond(exchange, keys));
             server.start();
@@ -73,13 +113,18 @@ class McpServerSecurityIntegrationTests {
     @DynamicPropertySource
     static void identityProvider(DynamicPropertyRegistry registry) {
         registry.add("spring.security.oauth2.resourceserver.jwt.issuer-uri",
-            () -> "http://localhost:" + IDENTITY_PROVIDER.getAddress().getPort());
+            McpServerSecurityIntegrationTests::issuer);
     }
 
     @AfterAll
     static void stopIdentityProvider() {
         IDENTITY_PROVIDER.stop(0);
     }
+
+    private static final String INITIALIZE = """
+        {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26",
+         "capabilities":{},"clientInfo":{"name":"integration-test","version":"1.0.0"}}}
+        """;
 
     @Autowired
     private MockMvc mockMvc;
@@ -97,6 +142,25 @@ class McpServerSecurityIntegrationTests {
                 .content("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}"))
             .andExpect(status().isUnauthorized())
             .andExpect(header().string("WWW-Authenticate", containsString("resource_metadata=")));
+    }
+
+    @Test
+    void rejectsAValidTokenThatWasIssuedForAnotherResource() throws Exception {
+        mockMvc.perform(post("/mcp")
+                .header("Authorization", "Bearer " + token("http://localhost/some-other-api", "edi:read"))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(INITIALIZE))
+            .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void acceptsATokenIssuedForThisServer() throws Exception {
+        mockMvc.perform(post("/mcp")
+                .header("Authorization", "Bearer " + token("http://localhost/mcp", "edi:read"))
+                .header("Accept", "application/json, text/event-stream")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(INITIALIZE))
+            .andExpect(status().isOk());
     }
 
     @Test
