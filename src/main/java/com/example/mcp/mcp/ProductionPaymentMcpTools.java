@@ -88,11 +88,10 @@ public class ProductionPaymentMcpTools {
             return existing;
         }
 
-        // 4. Finish the lock's life cycle: mark it completed on success, release it on failure so a retry can proceed.
+        // 4. Finish the lock's life cycle: release it on failure so a retry can proceed, mark it completed on success.
+        RefundResponseDto result;
         try {
-            RefundResponseDto result = paymentService.processRefund(tenantId, orderId, amount, idempotencyKey);
-            redisTemplate.opsForValue().set(lockKey, "COMPLETED:" + result.refundId(), LOCK_TTL);
-            return result;
+            result = paymentService.processRefund(tenantId, orderId, amount, idempotencyKey);
         } catch (RuntimeException e) {
             redisTemplate.delete(lockKey);
             return RefundResponseDto.error(
@@ -101,6 +100,13 @@ public class ProductionPaymentMcpTools {
                 "Retry once with the same idempotencyKey. If it fails again, hand off to a human agent."
             );
         }
+        try {
+            redisTemplate.opsForValue().set(lockKey, "COMPLETED:" + result.refundId(), LOCK_TTL);
+        } catch (RuntimeException e) {
+            // The money has moved, so the refund must still be reported as issued. The lock stays
+            // IN_PROGRESS until it expires, and a retry with the same key gets this same refund back.
+        }
+        return result;
     }
 
     public RefundResponseDto refundBulkheadFallback(String idempotencyKey, String orderId, BigDecimal amount, Throwable t) {

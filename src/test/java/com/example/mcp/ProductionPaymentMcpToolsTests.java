@@ -24,6 +24,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.startsWith;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -78,6 +79,18 @@ class ProductionPaymentMcpToolsTests {
 
         assertTrue(result.success());
         verify(values).set(eq(LOCK), startsWith("COMPLETED:REF-"), any(Duration.class));
+    }
+
+    @Test
+    void aRefundThatWentThroughIsStillReportedWhenTheLockCannotBeMarkedCompleted() {
+        when(values.setIfAbsent(eq(LOCK), eq("IN_PROGRESS"), any(Duration.class))).thenReturn(true);
+        doThrow(new IllegalStateException("redis unavailable"))
+            .when(values).set(eq(LOCK), anyString(), any(Duration.class));
+
+        RefundResponseDto result = tools.issueRefund(KEY, "ORD-123456", new BigDecimal("49.99"));
+
+        assertTrue(result.success());
+        verify(redis, never()).delete(LOCK);
     }
 
     @Test
