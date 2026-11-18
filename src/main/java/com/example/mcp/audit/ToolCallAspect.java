@@ -12,7 +12,7 @@ import org.aspectj.lang.annotation.Around;
 import org.aspectj.lang.annotation.Aspect;
 import org.aspectj.lang.reflect.MethodSignature;
 import org.slf4j.MDC;
-import org.springaicommunity.mcp.annotation.McpTool;
+import org.springframework.ai.mcp.annotation.McpTool;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.AnnotationUtils;
 import org.springframework.core.annotation.Order;
@@ -57,7 +57,7 @@ public class ToolCallAspect {
         this.rateLimiterRegistry = rateLimiterRegistry;
     }
 
-    @Around("@annotation(org.springaicommunity.mcp.annotation.McpTool)")
+    @Around("@annotation(org.springframework.ai.mcp.annotation.McpTool)")
     public Object aroundToolCall(ProceedingJoinPoint joinPoint) throws Throwable {
         Method method = ((MethodSignature) joinPoint.getSignature()).getMethod();
         McpTool mcpTool = AnnotationUtils.findAnnotation(method, McpTool.class);
