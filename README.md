@@ -151,7 +151,7 @@ This is a demo, and these gaps are deliberate:
 
 ## Versions
 
-Spring Boot 3.5.7, Spring AI 1.1.0 (MCP Java SDK 0.16.0, MCP annotations 0.7.0), `mcp-server-security` 0.0.3, Java 21.
+Spring Boot 4.1.2, Spring AI 2.0.2 (MCP annotations now part of Spring AI), `mcp-server-security` 0.1.14, Resilience4j 2.4 core modules, Java 21.
 
 ## Configuration
 
