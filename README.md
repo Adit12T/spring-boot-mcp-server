@@ -163,3 +163,7 @@ Spring Boot 3.5.7, Spring AI 1.1.0 (MCP Java SDK 0.16.0, MCP annotations 0.7.0),
 
 The engineering tools read their data locations from `application.yml` (`demo.edi.*`, `demo.logs.*`, `demo.source.*`).
 Each can be overridden with an environment variable, for example `EDI_CANDIDATE_DIR`.
+
+## License
+
+Copyright © 2026 Aditya Tripathi. All rights reserved. The code is published for viewing only; see [LICENSE](LICENSE). Security reports: see [SECURITY.md](SECURITY.md).
