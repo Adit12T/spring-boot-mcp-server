@@ -21,7 +21,7 @@
         <java.version>21</java.version>
         <spring-ai.version>1.1.0</spring-ai.version>
         <resilience4j.version>2.4.0</resilience4j.version>
-        <mcp-security.version>0.0.3</mcp-security.version>
+        <mcp-security.version>0.1.14</mcp-security.version>
     </properties>
 
     <dependencyManagement>
