@@ -3,7 +3,8 @@ package com.example.mcp.mcp;
 import com.example.mcp.dto.RefundResponseDto;
 import com.example.mcp.security.CallerContext;
 import com.example.mcp.service.PaymentDomainService;
-import io.github.resilience4j.bulkhead.annotation.Bulkhead;
+import io.github.resilience4j.bulkhead.Bulkhead;
+import io.github.resilience4j.bulkhead.BulkheadFullException;
 import org.springframework.ai.mcp.annotation.McpTool;
 import org.springframework.ai.mcp.annotation.McpToolParam;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -24,14 +25,16 @@ public class ProductionPaymentMcpTools {
 
     private final PaymentDomainService paymentService;
     private final StringRedisTemplate redisTemplate;
+    private final Bulkhead refundBulkhead;
 
-    public ProductionPaymentMcpTools(PaymentDomainService paymentService, StringRedisTemplate redisTemplate) {
+    public ProductionPaymentMcpTools(PaymentDomainService paymentService, StringRedisTemplate redisTemplate,
+                                     Bulkhead refundBulkhead) {
         this.paymentService = paymentService;
         this.redisTemplate = redisTemplate;
+        this.refundBulkhead = refundBulkhead;
     }
 
     @PreAuthorize("hasAuthority('SCOPE_payments:refund')")
-    @Bulkhead(name = "refundToolBulkhead", fallbackMethod = "refundBulkheadFallback")
     @McpTool(
         name = "issue_customer_refund",
         title = "Issue customer refund",
@@ -45,6 +48,15 @@ public class ProductionPaymentMcpTools {
             @McpToolParam(description = "Unique client-generated idempotency key (UUID)", required = true) String idempotencyKey,
             @McpToolParam(description = "Order ID matching pattern ORD-[0-9]{6}", required = true) String orderId,
             @McpToolParam(description = "Refund amount in USD (must be greater than 0 and up to 500.00)", required = true) BigDecimal amount) {
+        // Concurrency limit: at most a fixed number of refunds run at once; extra callers wait briefly, then get a busy answer.
+        try {
+            return refundBulkhead.executeSupplier(() -> processRefundRequest(idempotencyKey, orderId, amount));
+        } catch (BulkheadFullException e) {
+            return refundBulkheadFallback(idempotencyKey, orderId, amount, e);
+        }
+    }
+
+    private RefundResponseDto processRefundRequest(String idempotencyKey, String orderId, BigDecimal amount) {
 
         // 1. Input guardrails: what the descriptions promise is enforced here, not left to the model.
         if (idempotencyKey == null || !IDEMPOTENCY_KEY.matcher(idempotencyKey).matches()) {

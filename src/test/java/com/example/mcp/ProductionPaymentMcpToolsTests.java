@@ -39,7 +39,8 @@ class ProductionPaymentMcpToolsTests {
     private final StringRedisTemplate redis = mock(StringRedisTemplate.class);
     @SuppressWarnings("unchecked")
     private final ValueOperations<String, String> values = mock(ValueOperations.class);
-    private final ProductionPaymentMcpTools tools = new ProductionPaymentMcpTools(new PaymentDomainService(), redis);
+    private final ProductionPaymentMcpTools tools = new ProductionPaymentMcpTools(new PaymentDomainService(), redis,
+            io.github.resilience4j.bulkhead.Bulkhead.ofDefaults("refundToolBulkhead"));
 
     @BeforeEach
     void authenticateAsTenantOne() {

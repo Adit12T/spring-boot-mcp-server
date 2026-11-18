@@ -51,19 +51,12 @@ mcp:
     # Reject tokens whose audience is not this server (MCP authorization spec). Turn off only for local experiments.
     validate-audience: ${MCP_VALIDATE_AUDIENCE:true}
 
-resilience4j:
-  ratelimiter:
-    configs:
-      # Applied per tenant and per tool by ToolCallAspect.
-      mcpTool:
-        limitForPeriod: ${MCP_TOOL_CALLS_PER_MINUTE:60}
-        limitRefreshPeriod: 60s
-        timeoutDuration: 0s
-  bulkhead:
-    instances:
-      refundToolBulkhead:
-        maxConcurrentCalls: 10
-        maxWaitDuration: 500ms
+tool-resilience:
+  # Applied per tenant and per tool by ToolCallAspect.
+  calls-per-minute: ${MCP_TOOL_CALLS_PER_MINUTE:60}
+  # Concurrency limit on the refund tool.
+  refund-max-concurrent-calls: 10
+  refund-max-wait: 500ms
 
 management:
   endpoints:

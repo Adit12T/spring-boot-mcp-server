@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/Adit12T/spring-boot-mcp-server/actions/workflows/ci.yml/badge.svg)](https://github.com/Adit12T/spring-boot-mcp-server/actions/workflows/ci.yml)
 
-A reference **Model Context Protocol (MCP) Server** showing production security and resilience patterns, built with **Spring Boot 3.5**, **Spring AI**, **Spring Security OAuth 2.1**, **Redis Idempotency**, and **Resilience4j Bulkheads**.
+A reference **Model Context Protocol (MCP) Server** showing production security and resilience patterns, built with **Spring Boot 4.1**, **Spring AI**, **Spring Security OAuth 2.1**, **Redis Idempotency**, and **Resilience4j Bulkheads**.
 
 > **Scope.** This is a demo. It contains no employer code or data. The order and refund domain is an in-memory stub, and the EDI files, logs and `sample-app` are synthetic.
 
@@ -10,7 +10,7 @@ A reference **Model Context Protocol (MCP) Server** showing production security 
 
 1. **Layer 1: Edge & Transport Boundary** — Streamable HTTP (`/mcp`) protected by `McpServerOAuth2Configurer` with RFC 9728 Protected Resource Metadata (`/.well-known/oauth-protected-resource`).
 2. **Layer 2: Session & Protocol Engine** — Java 21 Virtual Threads (`spring.threads.virtual.enabled=true`) with `McpSyncServer`.
-3. **Layer 3: Capability & Guardrail Layer** — Declarative `@McpTool` and `@McpResource` components with `@PreAuthorize` scope verification, semantic validation, and `@Bulkhead` concurrency limits.
+3. **Layer 3: Capability & Guardrail Layer** — Declarative `@McpTool` and `@McpResource` components with `@PreAuthorize` scope verification, semantic validation, and a Resilience4j bulkhead for concurrency limits.
 4. **Layer 4: Domain & Infrastructure** — Clean domain services backed by Redis atomic idempotency locks (`SET NX EX`).
 
 ## How a tool call is handled
@@ -34,12 +34,12 @@ flowchart LR
 | Scoped access | Each tool needs its own scope; a logs token cannot issue refunds | `@PreAuthorize` on each tool |
 | Tenant isolation | The tenant comes from the token, never from tool arguments | `CallerContext` |
 | Audit logging | One JSON line per tool call: who, tenant, client, tool, outcome, duration, correlation id, and a hash of the arguments instead of their values. Denied and rate-limited calls are logged too | `ToolCallAspect`, `Slf4jAuditSink` |
-| Rate limiting | Per tenant and per tool (default 60 calls a minute) | `ToolCallAspect`, `resilience4j.ratelimiter.configs.mcpTool` |
+| Rate limiting | Per tenant and per tool (default 60 calls a minute) | `ToolCallAspect`, `ResilienceConfig` |
 | Metrics | `mcp.tool.calls` timer tagged by tool and outcome, exposed at `/actuator/prometheus` | `ToolCallAspect` |
 | Input validation | Order ids, idempotency keys, line-of-business names and class names are checked before use | each tool |
 | PII masking | Emails and long numbers in log text are masked before the text reaches the model | `PiiMasker` |
 | Idempotency | A refund key is locked in Redis, marked completed on success, released on failure, and rejected if reused for a different refund | `ProductionPaymentMcpTools` |
-| Concurrency limit | The refund tool has a bulkhead with a structured "busy" fallback | `@Bulkhead` |
+| Concurrency limit | The refund tool has a bulkhead with a structured "busy" fallback | `ResilienceConfig`, `ProductionPaymentMcpTools` |
 | Tool hints | Every tool declares `readOnlyHint`, `destructiveHint`, `idempotentHint` and `openWorldHint`, so clients can ask for confirmation before the refund tool | `@McpTool(annotations = ...)` |
 | Structured errors | Tools return an error code, message and recovery hint, so the agent knows whether to retry | DTOs in `dto/` |
 
@@ -158,7 +158,7 @@ Spring Boot 3.5.7, Spring AI 1.1.0 (MCP Java SDK 0.16.0, MCP annotations 0.7.0),
 | Property | Environment variable | Default | Meaning |
 |---|---|---|---|
 | `mcp.security.validate-audience` | `MCP_VALIDATE_AUDIENCE` | `true` | Reject tokens whose audience is not this server |
-| `resilience4j.ratelimiter.configs.mcpTool.limitForPeriod` | `MCP_TOOL_CALLS_PER_MINUTE` | `60` | Calls per tenant per tool per minute |
+| `tool-resilience.calls-per-minute` | `MCP_TOOL_CALLS_PER_MINUTE` | `60` | Calls per tenant per tool per minute |
 | `spring.security.oauth2.resourceserver.jwt.issuer-uri` | `OAUTH2_ISSUER_URI` | local Keycloak | Token issuer |
 
 The engineering tools read their data locations from `application.yml` (`demo.edi.*`, `demo.logs.*`, `demo.source.*`).
