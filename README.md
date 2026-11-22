@@ -84,28 +84,54 @@ the EDI reconciliation agent and the Java debugging agent.
 
 ## Quick Start
 
-### 1. Start Local Infrastructure (Redis & Keycloak)
+### Option A: everything in Docker (recommended)
+
+Needs only Docker. One command builds the server and starts Redis and Keycloak, with the realm,
+clients, scopes and audience mappers already loaded from `docker/keycloak/mcp-realm.json`.
+
 ```bash
-docker compose up -d
+docker compose up -d --build --wait
+./docker/smoke-test.sh          # anonymous call rejected, scoped tool allowed, wrong scope denied
 ```
 
-The server reads the identity provider's discovery document at startup, so Keycloak must be running with a
-realm named `mcp-realm` before step 2. In that realm, create a client for your agent, the scopes listed under
-Tools, and an audience mapper that puts `http://localhost:8080/mcp` in the token's `aud` claim.
-For a quick local experiment without the audience mapper, start the server with `MCP_VALIDATE_AUDIENCE=false`.
+| Service | URL on this machine | Notes |
+|---|---|---|
+| MCP server | `http://localhost:8080/mcp` | Streamable HTTP; health at `/actuator/health` |
+| Keycloak | `http://localhost:8081` | Admin console: `admin` / `admin` (local only) |
+| Redis | `localhost:6379` | Idempotency locks for refunds |
 
-### 2. Run the MCP Server
+Two demo clients show scoping:
+
+| Client | Token scopes | Get a token |
+|---|---|---|
+| `mcp-engineering-agent` | `edi:read logs:read source:read` | `./docker/get-token.sh engineering` |
+| `mcp-orders-agent` | `orders:read`, plus `payments:refund` only when asked for | `./docker/get-token.sh orders` or `./docker/get-token.sh orders payments:refund` |
+
+Every token carries `tenant_id=tenant-demo` and the audience `http://localhost:8080/mcp`, so
+audience validation stays on. Ports are published on `127.0.0.1` only, and the server runs as a
+non-root user. The client secrets and admin password are public demo values: never reuse this
+realm file outside your machine.
+
+**MCP Inspector:** `npx @modelcontextprotocol/inspector`, transport `Streamable HTTP`,
+URL `http://localhost:8080/mcp`, and paste `Bearer $(./docker/get-token.sh engineering)` as the
+Authorization header. Tokens name the issuer `http://keycloak:8081/...` (the address the server
+uses inside Docker). Fetching tokens with the script works as is; for a browser-based OAuth
+flow, add `127.0.0.1 keycloak` to your hosts file.
+
+`docker compose down` stops the stack; `-v` also removes volumes.
+
+### Option B: server on your machine, Redis and Keycloak in Docker
+
 ```bash
-mvn spring-boot:run
+docker compose up -d --wait redis keycloak
+echo "127.0.0.1 keycloak" | sudo tee -a /etc/hosts      # once: the issuer is http://keycloak:8081
+OAUTH2_ISSUER_URI=http://keycloak:8081/realms/mcp-realm mvn spring-boot:run
 ```
 
-### 3. Test with MCP Inspector
-```bash
-npx @modelcontextprotocol/inspector
-```
-- **Transport Type**: `Streamable HTTP`
-- **URL**: `http://localhost:8080/mcp`
-- **Authorization**: Supply a valid Bearer JWT carrying the scope for the tool you call, for example `orders:read` or `edi:read`.
+Then use `./docker/get-token.sh` as in option A. To use your own identity provider instead, point
+`OAUTH2_ISSUER_URI` at it; it needs the scopes listed under Tools and an audience mapper that puts
+`http://localhost:8080/mcp` in the token's `aud` claim (or start with `MCP_VALIDATE_AUDIENCE=false`
+for a quick local experiment).
 
 ## Tests
 
@@ -146,7 +172,7 @@ This is a demo, and these gaps are deliberate:
 - Audit events go to the application log. A real deployment would ship them to tamper-evident storage.
 - The refund tool relies on the client honouring `destructiveHint` for confirmation. Server-side human approval
   (MCP elicitation) is not implemented.
-- `docker-compose.yml` starts Keycloak but does not provision the realm; see Quick Start.
+- The Keycloak realm in `docker/` is for local use: fixed client secrets, `start-dev`, plain HTTP.
 - Tool descriptions and prompts have not been scored against an evaluation set.
 
 ## Versions
