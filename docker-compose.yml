@@ -51,7 +51,8 @@ services:
       KC_HOSTNAME: http://keycloak:8081
       KC_HEALTH_ENABLED: "true"
     volumes:
-      - ./docker/keycloak/mcp-realm.json:/opt/keycloak/data/import/mcp-realm.json:ro
+      # Keycloak's folder import needs files named <realm name>-realm.json; the realm is called mcp-realm.
+      - ./docker/keycloak/mcp-realm.json:/opt/keycloak/data/import/mcp-realm-realm.json:ro
     ports:
       - "127.0.0.1:8081:8081"
     healthcheck:
